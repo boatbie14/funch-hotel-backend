@@ -53,9 +53,11 @@ app.get("/api", (req, res) => {
 // ## Routes
 import adminRouter from "./routes/admin.js";
 import countryRouter from "./routes/country.js";
+import citiesRouter from "./routes/cities.js";
 
 app.use("/api/admin", adminRouter);
 app.use("/api/country", countryRouter);
+app.use("/api/cities", citiesRouter);
 
 // 404 handler
 app.use("*", (req, res) => {
