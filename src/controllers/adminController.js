@@ -253,24 +253,19 @@ class AdminController {
 
       // Remove password from response
       const { password: _, ...adminData } = adminResult.data;
-      console.log("adminData:", adminData);
 
       // Generate JWT tokens
       const tokenResult = generateToken(adminData);
-      console.log("tokenResult:", tokenResult);
 
       const refreshTokenResult = generateRefreshToken(adminData);
-      console.log("refreshTokenResult:", refreshTokenResult);
 
       if (!tokenResult.success || !refreshTokenResult.success) {
-        console.log("Token generation failed!");
         return res.status(500).json({
           error: "Token Generation Failed",
           message: "Failed to generate authentication tokens",
         });
       }
 
-      console.log("Sending response with tokens...");
       res.json({
         success: true,
         message: "Admin login successful",
