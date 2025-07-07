@@ -54,10 +54,14 @@ app.get("/api", (req, res) => {
 import adminRouter from "./routes/admin.js";
 import countryRouter from "./routes/country.js";
 import citiesRouter from "./routes/cities.js";
+import hotelsRouter from "./routes/hotels.js";
+import hotelImageRouter from "./routes/hotel-images.js";
 
 app.use("/api/admin", adminRouter);
 app.use("/api/country", countryRouter);
 app.use("/api/cities", citiesRouter);
+app.use("/api/hotels", hotelsRouter);
+app.use("/api/hotel-images", hotelImageRouter);
 
 // 404 handler
 app.use("*", (req, res) => {
