@@ -1,4 +1,4 @@
-import { body, query, validationResult } from "express-validator";
+import { body, query, param, validationResult } from "express-validator";
 
 // Handle validation errors
 export const handleValidationErrors = (req, res, next) => {
@@ -12,32 +12,45 @@ export const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-// Validate parent ID parameter (hotel_id or room_id)
-export const validateParentId = (paramName = "hotel_id") => {
-  return (req, res, next) => {
-    const id = req.params[paramName];
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-    if (!uuidRegex.test(id)) {
-      return res.status(400).json({
-        error: "Invalid ID format",
-        message: `${paramName} must be a valid UUID`,
-      });
-    }
-
-    next();
-  };
-};
-
-// Validate image ID parameter
+// Validate UUID parameters
 export const validateImageId = (req, res, next) => {
   const { id } = req.params;
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   if (!uuidRegex.test(id)) {
     return res.status(400).json({
-      error: "Invalid Image ID format",
+      error: "Invalid ID format",
       message: "Image ID must be a valid UUID",
+    });
+  }
+
+  next();
+};
+
+// Validate type parameter
+export const validateTypeParam = (req, res, next) => {
+  const { type } = req.params;
+  const validTypes = ["hotel", "room"];
+
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({
+      error: "Invalid Type",
+      message: "Type must be either 'hotel' or 'room'",
+    });
+  }
+
+  next();
+};
+
+// Validate parent_id parameter
+export const validateParentId = (req, res, next) => {
+  const { parent_id } = req.params;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (!uuidRegex.test(parent_id)) {
+    return res.status(400).json({
+      error: "Invalid Parent ID format",
+      message: "Parent ID must be a valid UUID",
     });
   }
 
@@ -52,17 +65,50 @@ const validateImageUrl = (url) => {
     if (!["http:", "https:"].includes(urlObj.protocol)) {
       return false;
     }
-    // Check if it looks like an image URL (optional, could be more flexible)
+    // Check if it looks like an image URL
     const imageExtensions = /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i;
-    return imageExtensions.test(urlObj.pathname) || urlObj.hostname.includes("supabase") || urlObj.hostname.includes("cloudinary");
+    return (
+      imageExtensions.test(urlObj.pathname) ||
+      urlObj.hostname.includes("supabase") ||
+      urlObj.hostname.includes("cloudinary") ||
+      urlObj.hostname.includes("amazonaws")
+    );
   } catch {
     return false;
   }
 };
 
+// Validate image type and parent relationship
+const validateTypeParentRelationship = (type, hotel_id, room_id) => {
+  if (type === "hotel") {
+    return hotel_id && !room_id;
+  } else if (type === "room") {
+    return room_id && !hotel_id;
+  }
+  return false;
+};
+
 // Validate single image creation
 export const validateImageCreate = [
-  body("hotel_id").notEmpty().withMessage("Hotel ID is required").isUUID().withMessage("Hotel ID must be a valid UUID"),
+  body("type").notEmpty().withMessage("Type is required").isIn(["hotel", "room"]).withMessage("Type must be either 'hotel' or 'room'"),
+
+  body("hotel_id").optional().isUUID().withMessage("Hotel ID must be a valid UUID"),
+
+  body("room_id").optional().isUUID().withMessage("Room ID must be a valid UUID"),
+
+  // Custom validation for type-parent relationship
+  body().custom((value, { req }) => {
+    const { type, hotel_id, room_id } = req.body;
+
+    if (!validateTypeParentRelationship(type, hotel_id, room_id)) {
+      if (type === "hotel") {
+        throw new Error("Hotel type requires hotel_id and room_id must be null");
+      } else if (type === "room") {
+        throw new Error("Room type requires room_id and hotel_id must be null");
+      }
+    }
+    return true;
+  }),
 
   body("img_url")
     .notEmpty()
@@ -86,14 +132,32 @@ export const validateImageCreate = [
 
   body("order").optional().isInt({ min: 0, max: 32767 }).withMessage("Order must be between 0 and 32767").toInt(),
 
-  body("isThumb").optional().isBoolean().withMessage("isThumb must be a boolean value").toBoolean(),
+  body("is_thumb").optional().isBoolean().withMessage("is_thumb must be a boolean value").toBoolean(),
 
   handleValidationErrors,
 ];
 
 // Validate bulk image creation
 export const validateBulkImageCreate = [
-  body("hotel_id").notEmpty().withMessage("Hotel ID is required").isUUID().withMessage("Hotel ID must be a valid UUID"),
+  body("type").notEmpty().withMessage("Type is required").isIn(["hotel", "room"]).withMessage("Type must be either 'hotel' or 'room'"),
+
+  body("hotel_id").optional().isUUID().withMessage("Hotel ID must be a valid UUID"),
+
+  body("room_id").optional().isUUID().withMessage("Room ID must be a valid UUID"),
+
+  // Custom validation for type-parent relationship
+  body().custom((value, { req }) => {
+    const { type, hotel_id, room_id } = req.body;
+
+    if (!validateTypeParentRelationship(type, hotel_id, room_id)) {
+      if (type === "hotel") {
+        throw new Error("Hotel type requires hotel_id and room_id must be null");
+      } else if (type === "room") {
+        throw new Error("Room type requires room_id and hotel_id must be null");
+      }
+    }
+    return true;
+  }),
 
   body("images").isArray({ min: 1 }).withMessage("Images array is required and must contain at least one image"),
 
@@ -119,11 +183,11 @@ export const validateBulkImageCreate = [
 
   body("images.*.order").optional().isInt({ min: 0, max: 32767 }).withMessage("Order must be between 0 and 32767").toInt(),
 
-  body("images.*.isThumb").optional().isBoolean().withMessage("isThumb must be a boolean value").toBoolean(),
+  body("images.*.is_thumb").optional().isBoolean().withMessage("is_thumb must be a boolean value").toBoolean(),
 
   // Validate that only one image can be thumbnail
   body("images").custom((images) => {
-    const thumbnails = images.filter((img) => img.isThumb === true);
+    const thumbnails = images.filter((img) => img.is_thumb === true);
     if (thumbnails.length > 1) {
       throw new Error("Only one image can be set as thumbnail");
     }
@@ -135,17 +199,17 @@ export const validateBulkImageCreate = [
 
 // Validate image update data
 export const validateImageUpdate = [
-  body("title_th").optional().trim().isLength({ max: 300 }).withMessage("Thai title must not exceed 300 characters"),
+  body("title_th").optional().trim().isLength({ max: 255 }).withMessage("Thai title must not exceed 255 characters"),
 
-  body("title_en").optional().trim().isLength({ max: 300 }).withMessage("English title must not exceed 300 characters"),
+  body("title_en").optional().trim().isLength({ max: 255 }).withMessage("English title must not exceed 255 characters"),
 
-  body("alt_th").optional().trim().isLength({ max: 300 }).withMessage("Thai alt text must not exceed 300 characters"),
+  body("alt_th").optional().trim().isLength({ max: 255 }).withMessage("Thai alt text must not exceed 255 characters"),
 
-  body("alt_en").optional().trim().isLength({ max: 300 }).withMessage("English alt text must not exceed 300 characters"),
+  body("alt_en").optional().trim().isLength({ max: 255 }).withMessage("English alt text must not exceed 255 characters"),
 
   body("order").optional().isInt({ min: 0, max: 32767 }).withMessage("Order must be between 0 and 32767").toInt(),
 
-  body("isThumb").optional().isBoolean().withMessage("isThumb must be a boolean value").toBoolean(),
+  body("is_thumb").optional().isBoolean().withMessage("is_thumb must be a boolean value").toBoolean(),
 
   body("img_url")
     .optional()
@@ -160,7 +224,7 @@ export const validateImageUpdate = [
 
   // Ensure at least one field is provided for update
   body().custom((value, { req }) => {
-    const allowedFields = ["title_th", "title_en", "alt_th", "alt_en", "order", "isThumb", "img_url"];
+    const allowedFields = ["title_th", "title_en", "alt_th", "alt_en", "order", "is_thumb", "img_url"];
     const providedFields = Object.keys(req.body).filter((key) => allowedFields.includes(key) && req.body[key] !== undefined);
 
     if (providedFields.length === 0) {
@@ -174,7 +238,7 @@ export const validateImageUpdate = [
 
 // Validate GET images query parameters
 export const validateGetImages = [
-  query("isThumb").optional().isBoolean().withMessage("isThumb must be a boolean value").toBoolean(),
+  query("is_thumb").optional().isBoolean().withMessage("is_thumb must be a boolean value").toBoolean(),
 
   query("orderBy").optional().isIn(["order", "created_at"]).withMessage("orderBy must be either 'order' or 'created_at'"),
 
@@ -260,8 +324,9 @@ export const validateImageContent = (req, res, next) => {
 
 export default {
   handleValidationErrors,
-  validateParentId,
   validateImageId,
+  validateTypeParam,
+  validateParentId,
   validateImageCreate,
   validateBulkImageCreate,
   validateImageUpdate,

@@ -51,17 +51,19 @@ app.get("/api", (req, res) => {
 });
 
 // ## Routes
-import adminRouter from "./routes/admin.js";
-import countryRouter from "./routes/country.js";
-import citiesRouter from "./routes/cities.js";
-import hotelsRouter from "./routes/hotels.js";
-import hotelImageRouter from "./routes/hotel-images.js";
+import adminRouters from "./routes/adminRoutes.js";
+import countryRouters from "./routes/countryRoutes.js";
+import citiesRouters from "./routes/citiesRoutes.js";
+import hotelsRouters from "./routes/hotelsRoutes.js";
+import imageRoutes from "./routes/imageRoutes.js";
+import roomRouters from "./routes/roomsRoutes.js";
 
-app.use("/api/admin", adminRouter);
-app.use("/api/country", countryRouter);
-app.use("/api/cities", citiesRouter);
-app.use("/api/hotels", hotelsRouter);
-app.use("/api/hotel-images", hotelImageRouter);
+app.use("/api/admin", adminRouters);
+app.use("/api/country", countryRouters);
+app.use("/api/cities", citiesRouters);
+app.use("/api/hotels", hotelsRouters);
+app.use("/api/images", imageRoutes);
+app.use("/api/rooms", roomRouters);
 
 // 404 handler
 app.use("*", (req, res) => {
