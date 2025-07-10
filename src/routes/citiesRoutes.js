@@ -26,7 +26,7 @@ router.get("/search", authenticateToken, requireAdmin, validateSearch, CitiesCon
 // @route   GET /api/cities/select
 // @desc    Get cities for dropdown/select (simplified data)
 // @access  Private (Admin only)
-router.get("/select", authenticateToken, requireAdmin, validateSelect, CitiesController.getCitiesForSelect);
+router.get("/select", validateSelect, CitiesController.getCitiesForSelect);
 
 // @route   GET /api/cities/country/:countryId
 // @desc    Get cities by country ID
@@ -43,7 +43,7 @@ router.get(
 // @route   GET /api/cities
 // @desc    Get all cities with pagination and optional country filter
 // @access  Private (Admin only)
-router.get("/", authenticateToken, requireAdmin, validatePagination, CitiesController.getAllCities);
+router.get("/", validatePagination, CitiesController.getAllCities);
 
 // @route   GET /api/cities/:id/hotels-check
 // @desc    Check if city has hotels (for delete validation)

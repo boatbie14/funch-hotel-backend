@@ -59,8 +59,8 @@ router.get("/admin/search", authenticateToken, requireAdmin, validateSearch, Hot
 
 // @route   GET /api/hotels/select
 // @desc    Get hotels for dropdown/select (simplified data)
-// @access  Private (Admin only)
-router.get("/select", authenticateToken, requireAdmin, validateSelect, HotelsController.getHotelsForSelect);
+// @access  All
+router.get("/select", validateSelect, HotelsController.getHotelsForSelect);
 
 // @route   POST /api/hotels
 // @desc    Create new hotel with location

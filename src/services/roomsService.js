@@ -2,6 +2,14 @@ import { supabase } from "../config/database.js";
 import { v4 as uuidv4 } from "uuid";
 
 class RoomsService {
+  // Helper function to log requests
+  /*   logRequest(method, endpoint, data) {
+    console.log("\n" + "=".repeat(50));
+    console.log(`[${new Date().toISOString()}] ${method} ${endpoint}`);
+    console.log("Request Data:", JSON.stringify(data, null, 2));
+    console.log("=".repeat(50) + "\n");
+  } */
+
   // Get all rooms with pagination and optional hotel filter
   async getAllRooms(page = 1, limit = 20, hotelId = null) {
     try {
@@ -21,7 +29,7 @@ class RoomsService {
         throw new Error(`Failed to get rooms count: ${countError.message}`);
       }
 
-      // Get rooms with related data
+      // Get rooms with related data including hotel information
       let dataQuery = supabase.from("rooms").select(`
           id,
           name_th,
@@ -41,20 +49,23 @@ class RoomsService {
           seo_description_th,
           seo_description_en,
           slug,
-          room_option_values!inner(
-            room_options(
-              id,
-              bed,
-              kitchen,
-              air_conditioner,
-              fan,
-              free_wifi,
-              city_view,
-              sea_view,
-              free_breakfast,
-              restaurant,
-              smoking
-            )
+          hotels(
+            id,
+            name_th,
+            name_en
+          ),
+          room_options(
+            id,
+            bed,
+            kitchen,
+            air_conditioner,
+            fan,
+            free_wifi,
+            city_view,
+            sea_view,
+            free_breakfast,
+            restaurant,
+            smoking
           )
         `);
 
@@ -70,13 +81,18 @@ class RoomsService {
 
       // Transform data to match expected format
       const transformedData = rawData.map((room) => {
-        const options = room.room_option_values?.[0]?.room_options || null;
+        // Get the first room_options if exists (since it's now 1-to-1 relationship)
+        const options = room.room_options?.[0] || null;
 
-        // Remove the junction table data from room object
-        const { room_option_values, ...roomData } = room;
+        // Extract hotel data
+        const hotel = room.hotels || null;
+
+        // Remove room_options and hotels array from room object
+        const { room_options, hotels, ...roomData } = room;
 
         return {
           room: roomData,
+          hotel: hotel,
           options: options,
         };
       });
@@ -106,7 +122,7 @@ class RoomsService {
     }
   }
 
-  // Get room by ID - ใช้เฉพาะ ID ของ room เพื่อความปลอดภัย
+  // Get room by ID
   async getRoomById(id) {
     try {
       const { data, error } = await supabase
@@ -131,20 +147,23 @@ class RoomsService {
           seo_description_th,
           seo_description_en,
           slug,
-          room_option_values!inner(
-            room_options(
-              id,
-              bed,
-              kitchen,
-              air_conditioner,
-              fan,
-              free_wifi,
-              city_view,
-              sea_view,
-              free_breakfast,
-              restaurant,
-              smoking
-            )
+          hotels(
+            id,
+            name_th,
+            name_en
+          ),
+          room_options(
+            id,
+            bed,
+            kitchen,
+            air_conditioner,
+            fan,
+            free_wifi,
+            city_view,
+            sea_view,
+            free_breakfast,
+            restaurant,
+            smoking
           )
         `
         )
@@ -156,13 +175,15 @@ class RoomsService {
       }
 
       // Transform data to match expected format
-      const options = data.room_option_values?.[0]?.room_options || null;
-      const { room_option_values, ...roomData } = data;
+      const options = data.room_options?.[0] || null;
+      const hotel = data.hotels || null;
+      const { room_options, hotels, ...roomData } = data;
 
       return {
         success: true,
         data: {
           room: roomData,
+          hotel: hotel,
           options: options,
         },
       };
@@ -177,10 +198,21 @@ class RoomsService {
   // Check room availability for specific date range
   async checkRoomAvailability(roomId, checkInDate, checkOutDate) {
     try {
-      // Get total rooms
+      // Get total rooms with hotel info
       const { data: room, error: roomError } = await supabase
         .from("rooms")
-        .select("total_rooms, name_th, name_en")
+        .select(
+          `
+          total_rooms, 
+          name_th, 
+          name_en,
+          hotels(
+            id,
+            name_th,
+            name_en
+          )
+        `
+        )
         .eq("id", roomId)
         .single();
 
@@ -214,6 +246,12 @@ class RoomsService {
             th: room.name_th,
             en: room.name_en,
           },
+          hotelName: room.hotels
+            ? {
+                th: room.hotels.name_th,
+                en: room.hotels.name_en,
+              }
+            : null,
           totalRooms: room.total_rooms,
           bookedRooms: bookedRooms || 0,
           availableRooms: Math.max(0, availableRooms),
@@ -233,10 +271,21 @@ class RoomsService {
   // Get current room availability (without specific dates)
   async getCurrentRoomAvailability(roomId) {
     try {
-      // Get total rooms
+      // Get total rooms with hotel info
       const { data: room, error: roomError } = await supabase
         .from("rooms")
-        .select("total_rooms, name_th, name_en")
+        .select(
+          `
+          total_rooms, 
+          name_th, 
+          name_en,
+          hotels(
+            id,
+            name_th,
+            name_en
+          )
+        `
+        )
         .eq("id", roomId)
         .single();
 
@@ -253,6 +302,12 @@ class RoomsService {
               th: room.name_th,
               en: room.name_en,
             },
+            hotelName: room.hotels
+              ? {
+                  th: room.hotels.name_th,
+                  en: room.hotels.name_en,
+                }
+              : null,
             totalRooms: room.total_rooms,
             status: "unavailable",
             message: "Room total count not set",
@@ -284,6 +339,12 @@ class RoomsService {
             th: room.name_th,
             en: room.name_en,
           },
+          hotelName: room.hotels
+            ? {
+                th: room.hotels.name_th,
+                en: room.hotels.name_en,
+              }
+            : null,
           totalRooms: room.total_rooms,
           occupiedRooms: occupiedRooms || 0,
           availableRooms: Math.max(0, availableRooms),
@@ -388,13 +449,12 @@ class RoomsService {
   // Create room options
   async createRoomOptions(roomId, optionsData) {
     try {
-      const optionsId = uuidv4();
-
-      // Create room option
+      // Create room option with room_id
       const { data: optionData, error: optionError } = await supabase
         .from("room_options")
         .insert({
-          id: optionsId,
+          id: uuidv4(),
+          room_id: roomId,
           ...optionsData,
         })
         .select()
@@ -402,17 +462,6 @@ class RoomsService {
 
       if (optionError) {
         throw new Error(`Failed to create room options: ${optionError.message}`);
-      }
-
-      // Link room with options
-      const { error: linkError } = await supabase.from("room_option_values").insert({
-        id: uuidv4(),
-        room_id: roomId,
-        options_id: optionsId,
-      });
-
-      if (linkError) {
-        throw new Error(`Failed to link room options: ${linkError.message}`);
       }
 
       return {
@@ -490,19 +539,8 @@ class RoomsService {
   // Update room options
   async updateRoomOptions(roomId, optionsData) {
     try {
-      // First, get existing room options
-      const { data: existingLink, error: linkError } = await supabase
-        .from("room_option_values")
-        .select("options_id")
-        .eq("room_id", roomId)
-        .single();
-
-      if (linkError) {
-        throw new Error(`Failed to find room options: ${linkError.message}`);
-      }
-
-      // Update the room options
-      const { data, error } = await supabase.from("room_options").update(optionsData).eq("id", existingLink.options_id).select().single();
+      // Update the room options directly
+      const { data, error } = await supabase.from("room_options").update(optionsData).eq("room_id", roomId).select().single();
 
       if (error) {
         throw new Error(`Failed to update room options: ${error.message}`);
@@ -876,7 +914,7 @@ class RoomsService {
           room: updatedRoom,
           options: updatedOptions,
           base_prices: updatedBasePrices,
-          override_prices: updatedOverridePrices,
+          override_prices: updatedOverridePricesResult,
         },
       };
     } catch (error) {
@@ -948,35 +986,14 @@ class RoomsService {
         throw new Error(`Failed to delete base prices: ${basePricesError.message}`);
       }
 
-      // 3. Get room option values to find options_id
-      const { data: roomOptionValues, error: roomOptionValuesError } = await supabase
-        .from("room_option_values")
-        .select("options_id")
-        .eq("room_id", id);
+      // 3. Delete room options
+      const { error: roomOptionsError } = await supabase.from("room_options").delete().eq("room_id", id);
 
-      if (roomOptionValuesError) {
-        throw new Error(`Failed to get room option values: ${roomOptionValuesError.message}`);
+      if (roomOptionsError) {
+        throw new Error(`Failed to delete room options: ${roomOptionsError.message}`);
       }
 
-      // 4. Delete room option values (junction table)
-      const { error: roomOptionValuesDeleteError } = await supabase.from("room_option_values").delete().eq("room_id", id);
-
-      if (roomOptionValuesDeleteError) {
-        throw new Error(`Failed to delete room option values: ${roomOptionValuesDeleteError.message}`);
-      }
-
-      // 5. Delete room options (if any were found)
-      if (roomOptionValues && roomOptionValues.length > 0) {
-        const optionsIds = roomOptionValues.map((item) => item.options_id);
-
-        const { error: roomOptionsError } = await supabase.from("room_options").delete().in("id", optionsIds);
-
-        if (roomOptionsError) {
-          throw new Error(`Failed to delete room options: ${roomOptionsError.message}`);
-        }
-      }
-
-      // 6. Finally delete the room itself
+      // 4. Finally delete the room itself
       const { data, error } = await supabase.from("rooms").delete().eq("id", id).select().single();
 
       if (error) {
@@ -999,7 +1016,23 @@ class RoomsService {
   // Get rooms for dropdown/select by hotel
   async getRoomsForSelect(hotelId = null) {
     try {
-      let query = supabase.from("rooms").select("id, name_th, name_en, hotel_id, total_rooms").eq("status", true); // เฉพาะ active rooms
+      let query = supabase
+        .from("rooms")
+        .select(
+          `
+          id, 
+          name_th, 
+          name_en, 
+          hotel_id, 
+          total_rooms,
+          hotels(
+            id,
+            name_th,
+            name_en
+          )
+        `
+        )
+        .eq("status", true); // เฉพาะ active rooms
 
       if (hotelId) {
         query = query.eq("hotel_id", hotelId);
@@ -1011,10 +1044,21 @@ class RoomsService {
         throw new Error(`Database error: ${error.message}`);
       }
 
+      // Transform data to include hotel info separately
+      const transformedData = data.map((room) => {
+        const hotel = room.hotels || null;
+        const { hotels, ...roomData } = room;
+
+        return {
+          ...roomData,
+          hotel: hotel,
+        };
+      });
+
       return {
         success: true,
-        data: data,
-        count: data.length,
+        data: transformedData,
+        count: transformedData.length,
       };
     } catch (error) {
       return {
@@ -1047,7 +1091,7 @@ class RoomsService {
         throw new Error(`Failed to get search count: ${countError.message}`);
       }
 
-      // Get search results with related data
+      // Get search results with related data including hotel information
       let dataQuery = supabase
         .from("rooms")
         .select(
@@ -1070,20 +1114,23 @@ class RoomsService {
           seo_description_th,
           seo_description_en,
           slug,
-          room_option_values!inner(
-            room_options(
-              id,
-              bed,
-              kitchen,
-              air_conditioner,
-              fan,
-              free_wifi,
-              city_view,
-              sea_view,
-              free_breakfast,
-              restaurant,
-              smoking
-            )
+          hotels(
+            id,
+            name_th,
+            name_en
+          ),
+          room_options(
+            id,
+            bed,
+            kitchen,
+            air_conditioner,
+            fan,
+            free_wifi,
+            city_view,
+            sea_view,
+            free_breakfast,
+            restaurant,
+            smoking
           )
         `
         )
@@ -1101,11 +1148,13 @@ class RoomsService {
 
       // Transform data to match expected format
       const transformedData = rawData.map((room) => {
-        const options = room.room_option_values?.[0]?.room_options || null;
-        const { room_option_values, ...roomData } = room;
+        const options = room.room_options?.[0] || null;
+        const hotel = room.hotels || null;
+        const { room_options, hotels, ...roomData } = room;
 
         return {
           room: roomData,
+          hotel: hotel,
           options: options,
         };
       });
