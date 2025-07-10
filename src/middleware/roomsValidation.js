@@ -232,11 +232,10 @@ export const validateRoomCreate = [
 
   body("override_prices.*.note")
     .if(body("override_prices").exists())
-    .notEmpty()
-    .withMessage("Note is required for override prices")
+    .optional({ values: "falsy" }) // ← อนุญาตให้เป็น empty string หรือ null
     .trim()
-    .isLength({ min: 5, max: 500 })
-    .withMessage("Note must be between 5 and 500 characters"),
+    .isLength({ min: 0, max: 500 })
+    .withMessage("Note must not exceed 500 characters"),
 
   body("override_prices.*.is_promotion")
     .if(body("override_prices").exists())

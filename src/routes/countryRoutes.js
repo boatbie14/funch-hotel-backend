@@ -22,12 +22,12 @@ router.get("/search", authenticateToken, requireAdmin, validateSearch, CountryCo
 // @route   GET /api/country/select
 // @desc    Get countries for dropdown/select (simplified data)
 // @access  Private (Admin only)
-router.get("/select", authenticateToken, requireAdmin, CountryController.getCountriesForSelect);
+router.get("/select", CountryController.getCountriesForSelect);
 
 // @route   GET /api/country
 // @desc    Get all countries with pagination
 // @access  Private (Admin only)
-router.get("/", authenticateToken, requireAdmin, validatePagination, CountryController.getAllCountries);
+router.get("/", validatePagination, CountryController.getAllCountries);
 
 // @route   GET /api/country/:id/cities-check
 // @desc    Check if country has cities (for delete validation)
