@@ -11,6 +11,7 @@ class RoomsService {
   } */
 
   // Get all rooms with pagination and optional hotel filter
+
   async getAllRooms(page = 1, limit = 20, hotelId = null) {
     try {
       const offset = (page - 1) * limit;
@@ -29,71 +30,200 @@ class RoomsService {
         throw new Error(`Failed to get rooms count: ${countError.message}`);
       }
 
-      // Get rooms with related data including hotel information
+      // Get rooms with basic data first
       let dataQuery = supabase.from("rooms").select(`
-          id,
-          name_th,
-          name_en,
-          description_th,
-          description_en,
-          max_adult,
-          max_children,
-          total_rooms,
-          status,
-          hotel_id,
-          created_at,
-          last_update,
-          last_update_by,
-          seo_title_th,
-          seo_title_en,
-          seo_description_th,
-          seo_description_en,
-          slug,
-          hotels(
-            id,
-            name_th,
-            name_en
-          ),
-          room_options(
-            id,
-            bed,
-            kitchen,
-            air_conditioner,
-            fan,
-            free_wifi,
-            city_view,
-            sea_view,
-            free_breakfast,
-            restaurant,
-            smoking
-          )
-        `);
+        id,
+        name_th,
+        name_en,
+        description_th,
+        description_en,
+        max_adult,
+        max_children,
+        total_rooms,
+        status,
+        hotel_id,
+        created_at,
+        last_update,
+        last_update_by,
+        seo_title_th,
+        seo_title_en,
+        seo_description_th,
+        seo_description_en,
+        slug,
+        room_size
+      `);
 
       if (hotelId) {
         dataQuery = dataQuery.eq("hotel_id", hotelId);
       }
 
-      const { data: rawData, error } = await dataQuery.order("created_at", { ascending: false }).range(offset, offset + limit - 1);
+      const { data: roomsData, error: roomsError } = await dataQuery
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1);
 
-      if (error) {
-        throw new Error(`Database error: ${error.message}`);
+      if (roomsError) {
+        throw new Error(`Database error: ${roomsError.message}`);
       }
 
+      // Get room IDs for additional queries
+      const roomIds = roomsData.map((room) => room.id);
+
+      // Parallel fetch for all related data
+      const [hotelsResult, optionsResult, imagesResult, basePricesResult, overridePricesResult] = await Promise.all([
+        // Get hotels
+        supabase
+          .from("hotels")
+          .select("id, name_th, name_en")
+          .in("id", [...new Set(roomsData.map((room) => room.hotel_id))]),
+
+        // Get room options
+        supabase
+          .from("room_options")
+          .select(
+            `
+          id,
+          room_id,
+          bed,
+          kitchen,
+          air_conditioner,
+          fan,
+          free_wifi,
+          city_view,
+          sea_view,
+          free_breakfast,
+          restaurant,
+          smoking,
+          mountain_view
+        `
+          )
+          .in("room_id", roomIds),
+
+        // Get room images (with explicit filter for room_id not null)
+        supabase
+          .from("images")
+          .select(
+            `
+          id,
+          room_id,
+          img_url,
+          is_thumb,
+          title_th,
+          title_en,
+          alt_th,
+          alt_en,
+          order
+        `
+          )
+          .in("room_id", roomIds)
+          .not("room_id", "is", null),
+
+        // Get base prices
+        supabase
+          .from("room_base_prices")
+          .select(
+            `
+          id,
+          room_id,
+          price_sun,
+          price_mon,
+          price_tue,
+          price_wed,
+          price_thu,
+          price_fri,
+          price_sat
+        `
+          )
+          .in("room_id", roomIds),
+
+        // Get override prices
+        supabase
+          .from("room_override_prices")
+          .select(
+            `
+          id,
+          room_id,
+          start_date,
+          end_date,
+          price,
+          note,
+          is_promotion,
+          is_active
+        `
+          )
+          .in("room_id", roomIds),
+      ]);
+
+      // Check for errors
+      if (hotelsResult.error) throw new Error(`Hotels error: ${hotelsResult.error.message}`);
+      if (optionsResult.error) throw new Error(`Options error: ${optionsResult.error.message}`);
+      if (imagesResult.error) throw new Error(`Images error: ${imagesResult.error.message}`);
+      if (basePricesResult.error) throw new Error(`Base prices error: ${basePricesResult.error.message}`);
+      if (overridePricesResult.error) throw new Error(`Override prices error: ${overridePricesResult.error.message}`);
+
+      // Create lookup maps for efficient data joining
+      const hotelsMap = new Map(hotelsResult.data.map((hotel) => [hotel.id, hotel]));
+      const optionsMap = new Map(optionsResult.data.map((option) => [option.room_id, option]));
+      const imagesMap = new Map();
+      const basePricesMap = new Map(basePricesResult.data.map((price) => [price.room_id, price]));
+      const overridePricesMap = new Map();
+
+      // Group images by room_id
+      imagesResult.data.forEach((image) => {
+        if (!imagesMap.has(image.room_id)) {
+          imagesMap.set(image.room_id, []);
+        }
+        imagesMap.get(image.room_id).push(image);
+      });
+
+      // Group override prices by room_id
+      overridePricesResult.data.forEach((price) => {
+        if (!overridePricesMap.has(price.room_id)) {
+          overridePricesMap.set(price.room_id, []);
+        }
+        overridePricesMap.get(price.room_id).push(price);
+      });
+
       // Transform data to match expected format
-      const transformedData = rawData.map((room) => {
-        // Get the first room_options if exists (since it's now 1-to-1 relationship)
-        const options = room.room_options?.[0] || null;
+      const transformedData = roomsData.map((room) => {
+        // Get related data
+        const hotel = hotelsMap.get(room.hotel_id) || null;
+        const options = optionsMap.get(room.id) || null;
+        const images = (imagesMap.get(room.id) || []).sort((a, b) => a.order - b.order);
+        const basePrices = basePricesMap.get(room.id) || null;
+        const overridePrices = (overridePricesMap.get(room.id) || []).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
-        // Extract hotel data
-        const hotel = room.hotels || null;
+        // Remove room_id from nested objects for cleaner response
+        const cleanOptions = options
+          ? (() => {
+              const { room_id, ...rest } = options;
+              return rest;
+            })()
+          : null;
 
-        // Remove room_options and hotels array from room object
-        const { room_options, hotels, ...roomData } = room;
+        const cleanImages = images.map((img) => {
+          const { room_id, ...rest } = img;
+          return rest;
+        });
+
+        const cleanBasePrices = basePrices
+          ? (() => {
+              const { room_id, ...rest } = basePrices;
+              return rest;
+            })()
+          : null;
+
+        const cleanOverridePrices = overridePrices.map((price) => {
+          const { room_id, ...rest } = price;
+          return rest;
+        });
 
         return {
-          room: roomData,
+          room: room,
           hotel: hotel,
-          options: options,
+          options: cleanOptions,
+          images: cleanImages,
+          base_prices: cleanBasePrices,
+          override_prices: cleanOverridePrices,
         };
       });
 
@@ -147,6 +277,7 @@ class RoomsService {
           seo_description_th,
           seo_description_en,
           slug,
+          room_size,
           hotels(
             id,
             name_th,
@@ -163,7 +294,37 @@ class RoomsService {
             sea_view,
             free_breakfast,
             restaurant,
-            smoking
+            smoking,
+            mountain_view
+          ),
+          images(
+            id,
+            img_url,
+            is_thumb,
+            title_th,
+            title_en,
+            alt_th,
+            alt_en,
+            order
+          ),
+          room_base_prices(
+            id,
+            price_sun,
+            price_mon,
+            price_tue,
+            price_wed,
+            price_thu,
+            price_fri,
+            price_sat
+          ),
+          room_override_prices(
+            id,
+            start_date,
+            end_date,
+            price,
+            note,
+            is_promotion,
+            is_active
           )
         `
         )
@@ -177,7 +338,19 @@ class RoomsService {
       // Transform data to match expected format
       const options = data.room_options?.[0] || null;
       const hotel = data.hotels || null;
-      const { room_options, hotels, ...roomData } = data;
+
+      // Sort images by order
+      const images = data.images ? data.images.sort((a, b) => a.order - b.order) : [];
+
+      // Get base prices
+      const basePrices = data.room_base_prices?.[0] || null;
+
+      // Get override prices sorted by start_date
+      const overridePrices = data.room_override_prices
+        ? data.room_override_prices.sort((a, b) => new Date(a.start_date) - new Date(b.start_date))
+        : [];
+
+      const { room_options, hotels, images: roomImages, room_base_prices, room_override_prices, ...roomData } = data;
 
       return {
         success: true,
@@ -185,6 +358,9 @@ class RoomsService {
           room: roomData,
           hotel: hotel,
           options: options,
+          images: images,
+          base_prices: basePrices,
+          override_prices: overridePrices,
         },
       };
     } catch (error) {
@@ -230,7 +406,7 @@ class RoomsService {
         .select("*", { count: "exact", head: true })
         .eq("room_id", roomId)
         .in("status", ["confirmed", "checked_in"]) // Include relevant booking statuses
-        .or(`and(check_in.lte.${checkOutDate},check_out.gte.${checkInDate})`);
+        .or(`and(checkin_date.lte.${checkOutDate},checkout_date.gte.${checkInDate})`);
 
       if (bookingError) {
         throw new Error(`Failed to check bookings: ${bookingError.message}`);
@@ -322,8 +498,8 @@ class RoomsService {
         .select("*", { count: "exact", head: true })
         .eq("room_id", roomId)
         .in("status", ["confirmed", "checked_in"])
-        .lte("check_in", today)
-        .gte("check_out", today);
+        .lte("checkin_date", today)
+        .gte("checkout_date", today);
 
       if (bookingError) {
         throw new Error(`Failed to check current bookings: ${bookingError.message}`);
@@ -638,6 +814,7 @@ class RoomsService {
         seo_description_th,
         seo_description_en,
         slug,
+        room_size,
         room_options,
         base_prices,
         override_prices,
@@ -698,6 +875,7 @@ class RoomsService {
         seo_description_th,
         seo_description_en,
         slug,
+        room_size,
         created_at: new Date().toISOString(),
         last_update: new Date().toISOString(),
         last_update_by,
@@ -766,6 +944,7 @@ class RoomsService {
         seo_description_th,
         seo_description_en,
         slug,
+        room_size,
         room_options,
         base_prices,
         override_prices,
@@ -795,6 +974,7 @@ class RoomsService {
         "seo_description_th",
         "seo_description_en",
         "slug",
+        "room_size",
         "last_update_by",
       ];
 
@@ -888,7 +1068,7 @@ class RoomsService {
       }
 
       // Update base prices if provided
-      let updatedBasePrices = null;
+      let updatedBasePrices = currentRoom.data.base_prices;
       if (base_prices) {
         const basePricesResult = await this.updateBasePrices(id, base_prices);
         if (!basePricesResult.success) {
@@ -898,7 +1078,7 @@ class RoomsService {
       }
 
       // Update override prices if provided
-      let updatedOverridePrices = null;
+      let updatedOverridePrices = currentRoom.data.override_prices;
       if (override_prices !== undefined) {
         // Check for undefined, allow empty array
         const overridePricesResult = await this.updateOverridePrices(id, override_prices);
@@ -914,7 +1094,8 @@ class RoomsService {
           room: updatedRoom,
           options: updatedOptions,
           base_prices: updatedBasePrices,
-          override_prices: updatedOverridePricesResult,
+          override_prices: updatedOverridePrices,
+          images: currentRoom.data.images, // Return existing images
         },
       };
     } catch (error) {
@@ -972,28 +1153,35 @@ class RoomsService {
 
       // Delete related data first (in correct order due to foreign key constraints)
 
-      // 1. Delete override prices
+      // 1. Delete images
+      const { error: imagesError } = await supabase.from("images").delete().eq("room_id", id);
+
+      if (imagesError) {
+        throw new Error(`Failed to delete images: ${imagesError.message}`);
+      }
+
+      // 2. Delete override prices
       const { error: overridePricesError } = await supabase.from("room_override_prices").delete().eq("room_id", id);
 
       if (overridePricesError) {
         throw new Error(`Failed to delete override prices: ${overridePricesError.message}`);
       }
 
-      // 2. Delete base prices
+      // 3. Delete base prices
       const { error: basePricesError } = await supabase.from("room_base_prices").delete().eq("room_id", id);
 
       if (basePricesError) {
         throw new Error(`Failed to delete base prices: ${basePricesError.message}`);
       }
 
-      // 3. Delete room options
+      // 4. Delete room options
       const { error: roomOptionsError } = await supabase.from("room_options").delete().eq("room_id", id);
 
       if (roomOptionsError) {
         throw new Error(`Failed to delete room options: ${roomOptionsError.message}`);
       }
 
-      // 4. Finally delete the room itself
+      // 5. Finally delete the room itself
       const { data, error } = await supabase.from("rooms").delete().eq("id", id).select().single();
 
       if (error) {
@@ -1091,7 +1279,7 @@ class RoomsService {
         throw new Error(`Failed to get search count: ${countError.message}`);
       }
 
-      // Get search results with related data including hotel information
+      // Get search results with related data including hotel information, images, and pricing
       let dataQuery = supabase
         .from("rooms")
         .select(
@@ -1114,6 +1302,7 @@ class RoomsService {
           seo_description_th,
           seo_description_en,
           slug,
+          room_size,
           hotels(
             id,
             name_th,
@@ -1130,7 +1319,37 @@ class RoomsService {
             sea_view,
             free_breakfast,
             restaurant,
-            smoking
+            smoking,
+            mountain_view
+          ),
+          images(
+            id,
+            img_url,
+            is_thumb,
+            title_th,
+            title_en,
+            alt_th,
+            alt_en,
+            order
+          ),
+          room_base_prices(
+            id,
+            price_sun,
+            price_mon,
+            price_tue,
+            price_wed,
+            price_thu,
+            price_fri,
+            price_sat
+          ),
+          room_override_prices(
+            id,
+            start_date,
+            end_date,
+            price,
+            note,
+            is_promotion,
+            is_active
           )
         `
         )
@@ -1150,12 +1369,27 @@ class RoomsService {
       const transformedData = rawData.map((room) => {
         const options = room.room_options?.[0] || null;
         const hotel = room.hotels || null;
-        const { room_options, hotels, ...roomData } = room;
+
+        // Sort images by order
+        const images = room.images ? room.images.sort((a, b) => a.order - b.order) : [];
+
+        // Get base prices
+        const basePrices = room.room_base_prices?.[0] || null;
+
+        // Get override prices sorted by start_date
+        const overridePrices = room.room_override_prices
+          ? room.room_override_prices.sort((a, b) => new Date(a.start_date) - new Date(b.start_date))
+          : [];
+
+        const { room_options, hotels, images: roomImages, room_base_prices, room_override_prices, ...roomData } = room;
 
         return {
           room: roomData,
           hotel: hotel,
           options: options,
+          images: images,
+          base_prices: basePrices,
+          override_prices: overridePrices,
         };
       });
 

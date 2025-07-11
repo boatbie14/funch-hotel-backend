@@ -345,6 +345,39 @@ class HotelsController {
     }
   }
 
+  // @route   GET /api/hotels/city/:citySlug
+  // @desc    Get hotels by city slug (PUBLIC)
+  // @access  Public
+  async getHotelsByCitySlugPublic(req, res) {
+    try {
+      const { citySlug } = req.params;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+
+      const result = await HotelsService.getHotelsByCitySlugPublic(citySlug, page, limit);
+
+      if (!result.success) {
+        return res.status(400).json({
+          error: "Database Error",
+          message: result.error,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Hotels by city retrieved successfully",
+        data: result.data,
+        pagination: result.pagination,
+        city_slug: citySlug,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Internal Server Error",
+        message: error.message,
+      });
+    }
+  }
+
   // @route   GET /api/hotels/city/:cityId (ADMIN)
   // @desc    Get hotels by city ID (ADMIN)
   // @access  Private (Admin only)

@@ -1,7 +1,30 @@
+//services/hotelsService.js
+
 import { supabase } from "../config/database.js";
 import { v4 as uuidv4 } from "uuid";
 
 class HotelsService {
+  // Get city ID by slug
+  async getCityIdBySlug(citySlug) {
+    try {
+      const { data, error } = await supabase.from("cities").select("id, name_th, name_en, slug").eq("slug", citySlug).single();
+
+      if (error) {
+        throw new Error(`City not found: ${error.message}`);
+      }
+
+      return {
+        success: true,
+        data: data,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
   // Get all hotels with pagination and optional filters (PUBLIC VERSION)
   async getAllHotelsPublic(page = 1, limit = 20, filters = {}) {
     try {
@@ -9,7 +32,7 @@ class HotelsService {
       const { cityId } = filters;
 
       // Build base query with joins - PUBLIC VERSION (only active hotels)
-      let countQuery = supabase.from("hotels").select("*", { count: "exact", head: true }).eq("status", true); // Only active hotels for public
+      let countQuery = supabase.from("hotels").select("*", { count: "exact", head: true }).eq("status", true);
 
       let dataQuery = supabase
         .from("hotels")
@@ -31,7 +54,7 @@ class HotelsService {
           )
         `
         )
-        .eq("status", true); // Only active hotels for public
+        .eq("status", true);
 
       // Apply filters
       if (cityId) {
@@ -52,8 +75,23 @@ class HotelsService {
         throw new Error(`Database error: ${error.message}`);
       }
 
-      // Keep nested structure for public API, just remove IDs
-      // No processing needed - Supabase already returns without IDs
+      // Get thumbnail images for each hotel
+      if (data && data.length > 0) {
+        const hotelIds = data.map((hotel) => hotel.id);
+        const { data: images, error: imageError } = await supabase
+          .from("images")
+          .select("hotel_id, title_th, title_en, alt_th, alt_en, is_thumb, order, img_url")
+          .in("hotel_id", hotelIds)
+          .eq("is_thumb", true)
+          .order("order", { ascending: true });
+
+        if (!imageError && images) {
+          // Add images to hotels
+          data.forEach((hotel) => {
+            hotel.images = images.filter((img) => img.hotel_id === hotel.id);
+          });
+        }
+      }
 
       // Calculate pagination info
       const totalPages = Math.ceil(count / limit);
@@ -199,6 +237,8 @@ class HotelsService {
   // Get hotel by slug (PUBLIC VERSION)
   async getHotelBySlugPublic(slug) {
     try {
+      console.log("Debug: Starting getHotelBySlugPublic with slug:", slug);
+
       const { data, error } = await supabase
         .from("hotels")
         .select(
@@ -216,25 +256,63 @@ class HotelsService {
                 name_th, name_en, image
               )
             )
+          ),
+          hotel_option_map!hotel_option_map_hotel_id_fkey (
+            hotel_options!hotel_option_map_hotel_option_id_fkey (
+              th, en, icon
+            )
           )
         `
         )
         .eq("slug", slug)
-        .eq("status", true) // Only active hotels for public
+        .eq("status", true)
         .single();
+
+      console.log("Debug: Hotel query result:", { data, error });
 
       if (error) {
         throw new Error(`Hotel not found: ${error.message}`);
       }
 
-      // Keep nested structure for public API (single hotel)
-      // No processing needed - Supabase already returns without IDs
+      console.log("Debug: hotel_option_map data:", data.hotel_option_map);
+
+      // Transform hotel_option_map structure to flat hotel_options array
+      if (data.hotel_option_map && data.hotel_option_map.length > 0) {
+        data.hotel_options = data.hotel_option_map.map((item) => item.hotel_options);
+        delete data.hotel_option_map; // Remove the intermediate structure
+        console.log("Debug: Transformed hotel_options:", data.hotel_options);
+      } else {
+        data.hotel_options = [];
+        console.log("Debug: No hotel options found");
+      }
+
+      // Get ALL images for this hotel (not just thumbnails)
+      console.log("Debug: Fetching images for hotel_id:", data.id);
+
+      const { data: images, error: imageError } = await supabase
+        .from("images")
+        .select("title_th, title_en, alt_th, alt_en, is_thumb, order, img_url, type")
+        .eq("hotel_id", data.id)
+        .order("order", { ascending: true });
+
+      console.log("Debug: Images query result:", { images, imageError });
+
+      if (!imageError && images) {
+        data.images = images;
+        console.log("Debug: Added", images.length, "images to hotel data");
+      } else {
+        data.images = [];
+        console.log("Debug: No images found or error:", imageError);
+      }
+
+      console.log("Debug: Final data structure keys:", Object.keys(data));
 
       return {
         success: true,
         data: data,
       };
     } catch (error) {
+      console.log("Debug: Error in getHotelBySlugPublic:", error.message);
       return {
         success: false,
         error: error.message,
@@ -548,7 +626,7 @@ class HotelsService {
       }
 
       // Check if hotel has images (should be deleted via images API first)
-      const { data: images, error: imageCheckError } = await supabase.from("hotel_images").select("id").eq("hotel_id", id).limit(1);
+      const { data: images, error: imageCheckError } = await supabase.from("images").select("id").eq("hotel_id", id).limit(1);
 
       if (imageCheckError) {
         throw new Error(`Failed to check hotel images: ${imageCheckError.message}`);
@@ -598,7 +676,7 @@ class HotelsService {
         .or(
           `name_th.ilike.${searchPattern},name_en.ilike.${searchPattern},location_th.ilike.${searchPattern},location_en.ilike.${searchPattern}`
         )
-        .eq("status", true); // Only active hotels for public
+        .eq("status", true);
 
       let dataQuery = supabase
         .from("hotels")
@@ -623,7 +701,7 @@ class HotelsService {
         .or(
           `name_th.ilike.${searchPattern},name_en.ilike.${searchPattern},location_th.ilike.${searchPattern},location_en.ilike.${searchPattern}`
         )
-        .eq("status", true); // Only active hotels for public
+        .eq("status", true);
 
       // Apply filters
       if (cityId) {
@@ -643,9 +721,6 @@ class HotelsService {
       if (error) {
         throw new Error(`Database error: ${error.message}`);
       }
-
-      // Keep nested structure for public API search
-      // No processing needed - Supabase already returns without IDs
 
       // Calculate pagination info
       const totalPages = Math.ceil(count / limit);
