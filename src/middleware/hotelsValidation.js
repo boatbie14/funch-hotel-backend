@@ -422,6 +422,21 @@ export const validateCheckTimes = (req, res, next) => {
   }
 };
 
+// เพิ่ม validation ใหม่สำหรับ citySlug parameter
+export const validateCitySlugParam = (req, res, next) => {
+  const { citySlug } = req.params;
+  const slugRegex = /^[a-z0-9\-]+$/;
+
+  if (!slugRegex.test(citySlug)) {
+    return res.status(400).json({
+      error: "Invalid City Slug format",
+      message: "City slug can only contain lowercase letters, numbers, and hyphens",
+    });
+  }
+
+  next();
+};
+
 // Rate limiting for hotel operations
 export const hotelRateLimit = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
   const requests = new Map();
@@ -472,6 +487,7 @@ export default {
   validateUUID,
   validateCityUUID,
   validateSlugParam,
+  validateCitySlugParam, // เพิ่มใหม่
   sanitizeHotelData,
   validateHotelContent,
   validateHotelNames,

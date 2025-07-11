@@ -11,6 +11,7 @@ import {
   validateUUID,
   validateCityUUID,
   validateSlugParam,
+  validateCitySlugParam,
   sanitizeHotelData,
   validateHotelContent,
   validateHotelNames,
@@ -39,6 +40,11 @@ router.get("/slug/:slug", validateSlugParam, HotelsController.getHotelBySlugPubl
 // @desc    Get hotels by city ID (public)
 // @access  Public
 router.get("/city/:cityId", validateCityUUID, validateHotelsByCity, HotelsController.getHotelsByCityIdPublic);
+
+// @route   GET /api/hotels/city/slug/:citySlug
+// @desc    Get hotels by city slug (public)
+// @access  Public
+router.get("/city/slug/:citySlug", validateCitySlugParam, validateHotelsByCity, HotelsController.getHotelsByCitySlugPublic);
 
 // @route   GET /api/hotels
 // @desc    Get all hotels with pagination and optional filters (public - limited data)

@@ -54,18 +54,22 @@ app.get("/api", (req, res) => {
 import adminRouters from "./routes/adminRoutes.js";
 import countryRouters from "./routes/countryRoutes.js";
 import citiesRouters from "./routes/citiesRoutes.js";
-import createUserRouters from "./routes/createUserRoutes.js";
+import createUserRouters from "./routes/userRegisterRoutes.js";
 import hotelsRouters from "./routes/hotelsRoutes.js";
-import imageRoutes from "./routes/imageRoutes.js";
-import metadataRoutes from "./routes/metadata.js";
+import imageRouters from "./routes/imageRoutes.js";
+import metadataRouters from "./routes/metadata.js";
 import roomRouters from "./routes/roomsRoutes.js";
+import userLoginRouters from "./routes/userLoginRoutes.js";
+import bookingRouters from "./routes/bookingRouters.js";
 
+app.use("/api/", userLoginRouters);
 app.use("/api/admin", adminRouters);
+app.use("/api/booking", bookingRouters);
 app.use("/api/country", countryRouters);
 app.use("/api/cities", citiesRouters);
 app.use("/api/hotels", hotelsRouters);
-app.use("/api/images", imageRoutes);
-app.use("/api/metadata", metadataRoutes);
+app.use("/api/images", imageRouters);
+app.use("/api/metadata", metadataRouters);
 app.use("/api/rooms", roomRouters);
 app.use("/api/user", createUserRouters);
 
